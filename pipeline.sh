@@ -992,9 +992,8 @@ nights=()
 for currentNight in $(seq 1 $numberOfNights); do
       nights+=("$currentNight")
 done
-printf "%s\n" "${nights[@]}" | parallel --line-buffer -j "$num_cpus" oneNightPreProcessing {}
 
-
+printf "%s\n" "${nights[@]}" | parallel --line-buffer -j "$numberOfNights" oneNightPreProcessing {}
 totalNumberOfFrames=$( ls $framesForCommonReductionDir/*.fits | wc -l)
 export totalNumberOfFrames
 echo -e "* Total number of frames to combine: ${GREEN} $totalNumberOfFrames ${NOCOLOUR} *"
@@ -1140,8 +1139,11 @@ else
         astfits $i --copy=0 --primaryimghdu -o $out
         for h in $(seq 1 $num_ccd); do
           im_layer=$astroimadir_layer/layer"$h"_"$base"
-          if [ $h -ne 2 ] && [ $h -ne 9 ] && [ $h -ne 10 ] && [ $h -ne 12 ]; then
+          if [ $h -ne 2 ] && [ $h -ne 9 ] && [ $h -ne 10 ] && [ $h -ne 12 ] && [ -f $im_layer ]; then
                 astfits $im_layer --copy=1 -o $out
+          elif [ "$h" -ne 2 ] && [ "$h" -ne 9 ] && [ "$h" -ne 10 ] && [ "$h" -ne 12 ] && [ ! -f "$im_layer" ]; then
+                astfits $i --copy=$h -o $out
+                echo "Warning: Layer $h for frame $base was not found in the astrometry layer directory, so astrometry was copied from the original image"
           fi
           #if [ $h -ne 2 ] && [ $h -ne 9 ] && [ $h -ne 10 ] && [ $h -ne 12 ]; then
           #  astfits $i --copy=$h -o $out
@@ -1227,7 +1229,7 @@ else
 
   for ((i = 1; i <= numOfSextractorPlusScampIterations; i++)); do
     echo -e "\tSExtractor + scamp iteration $i"
-    scampcfg_it=$CDIR/AAAscamp_it"$i".cfg
+    scampcfg_it=$CDIR/Ascamp_it"$i".cfg
     if [ -f $scampcfg_it ]; then
       scampcfg=$scampcfg_it
     fi
@@ -1749,7 +1751,7 @@ photCorrFullGridDone=$photCorrFullGridDir/done.txt
 identifiedBadDetectors=$CDIR/identifiedBadDetectors.txt #We can now provide a list of bad detectors to blank them
 if ! [ -d $photCorrFullGridDir ]; then mkdir $photCorrFullGridDir; fi
 smallGridtoFullGridAndWeight $photCorrSmallGridDir $photCorrFullGridDir $photCorrFullGridDone $coaddSizePx $ra $dec $noiseskydir $minRmsFileName $iteration $identifiedBadDetectors 
-
+#exit
 
 echo -e "\n·Removing bad frames"
 
@@ -1757,10 +1759,11 @@ diagnosis_and_badFilesDir=$BDIR/diagnosis_and_badFiles
 rejectedFramesDir=$BDIR/rejectedFrames
 if ! [ -d $rejectedFramesDir ]; then mkdir $rejectedFramesDir; fi
 echo -e "\nRemoving (moving to $rejectedFramesDir) the frames that have been identified as bad frames"
-
+prefixOfFilesToRemove="entirecamera_"
 rejectedByAstrometry=identifiedBadFrames_astrometry.txt
-#removeBadFramesFromReduction $noiseskydir $rejectedFramesDir $diagnosis_and_badFilesDir $rejectedByAstrometry
-#removeBadFramesFromReduction $photCorrFullGridDir $rejectedFramesDir $diagnosis_and_badFilesDir $rejectedByAstrometry
+removeBadFramesFromReduction $noiseskydir $rejectedFramesDir $diagnosis_and_badFilesDir $rejectedByAstrometry $prefixOfFilesToRemove
+removeBadFramesFromReduction $photCorrFullGridDir $rejectedFramesDir $diagnosis_and_badFilesDir $rejectedByAstrometry $prefixOfFilesToRemove
+
 
 
 # Store the minimum standard deviation of the frames in order to compute the weights
