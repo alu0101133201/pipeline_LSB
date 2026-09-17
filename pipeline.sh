@@ -830,6 +830,7 @@ oneNightPreProcessing() {
       name=$(( $initialValue + $a ))
       cp $maskedcornerdir/$base $framesForCommonReductionDir/$name.fits
       astfits $framesForCommonReductionDir/$name.fits -h1 --write=ORIGINAL_FILE,$base
+      astfits $framesForCommonReductionDir/$name.fits -h1 --write=NightNumber,$currentNight
     done
     echo "done" > $framesForCommonReductionDone
     
@@ -874,6 +875,7 @@ printf "%s\n" "${nights[@]}" | parallel --line-buffer -j "$num_cpus" oneNightPre
 totalNumberOfFrames=$( ls $framesForCommonReductionDir/*.fits | wc -l)
 export totalNumberOfFrames
 echo -e "* Total number of frames to combine: ${GREEN} $totalNumberOfFrames ${NOCOLOUR} *"
+
 
 
 # Up to this point the frame of every night has been corrected of bias-dark and flat.
@@ -967,7 +969,7 @@ echo cpulimit 300 >> $astrocfg
 echo "add_path $indexdir" >> $astrocfg
 echo autoindex >> $astrocfg
 
-telescopes_already_astrometrised=("TST" "TTT3_iKon" "TTT3_QHY")
+telescopes_already_astrometrised=("TST" "TTT3_QHY")
 
 astroimadir=$BDIR/astro-ima
 astroimadone=$astroimadir/done_"$filter".txt
@@ -1081,6 +1083,7 @@ else
   rm -rf $entiredir_fullGrid
   echo done > $entiredone
 fi
+
 
 
 # Checking bad astrometrised frames ------
@@ -1357,10 +1360,28 @@ else
   echo done > $numberOfStarsUsedInEachFrameDone
 fi
 
-applyCommonCalibrationFactor=true
-if [[ ("$applyCommonCalibrationFactor" = "true") || ("$applyCommonCalibrationFactor" = "True") ]]; then
+
+
+
+# calibrationFactorScope controls how calibration factors are computed/applied:
+#   individual - each frame keeps its own, individually-computed calibration factor (nothing computed here)
+#   global     - one common calibration factor across every frame in the run
+#   perNight   - one common calibration factor per night (computeCommonCalibrationFactorPerNight)
+calibrationFactorScope=perNight
+commonCalibrationFactorFile=""
+if [[ "$calibrationFactorScope" == "individual" ]]; then
+  echo -e "\nUsing each frame's own individual calibration factor - nothing to compute here"
+elif [[ "$calibrationFactorScope" == "global" ]]; then
   computeCommonCalibrationFactor $alphatruedir $iteration $objectName $BDIR
+  commonCalibrationFactorFile="$BDIR/commonCalibrationFactor_it$iteration.txt"
+elif [[ "$calibrationFactorScope" == "perNight" ]]; then
+  computeCommonCalibrationFactorPerNight $alphatruedir $iteration $objectName $BDIR
+  commonCalibrationFactorFile="$BDIR/commonCalibrationFactors_it$iteration.txt"
+else
+  echo "Value of variable calibrationFactorScope ($calibrationFactorScope) not recognised"
+  exit 55
 fi
+
 
 
 # DIAGNOSIS PLOT
@@ -1379,7 +1400,7 @@ else
   badFilesCalibrationFactorFile=identifiedBadFrames_calibrationFactor_it$iteration.txt
   python3 $pythonScriptsPath/diagnosis_normalisedBackgroundMagnitudesAndCalibrationFactorPlots.py $tmpDir $framesForCommonReductionDir $airMassKeyWord $alphatruedir \
                                                                                                   $pixelScale $diagnosis_and_badFilesDir $maximumBackgroundBrightness $badFilesBackgroundWarningsFile \
-                                                                                                  $badFilesCalibrationFactorFile $applyCommonCalibrationFactor $BDIR/commonCalibrationFactor_it$iteration.txt 1
+                                                                                                  $badFilesCalibrationFactorFile $calibrationFactorScope $commonCalibrationFactorFile $iteration
   echo "done" > $backgroundBrightnessDone
 fi
 
@@ -1387,8 +1408,7 @@ fi
 echo -e "\n ${GREEN} ---Applying calibration factors--- ${NOCOLOUR}"
 alphatruedir=$BDIR/alpha-stars-true_it$iteration
 photCorrSmallGridDir=$BDIR/photCorrSmallGrid-dir_it$iteration
-applyCalibrationFactors $subskySmallGrid_dir $alphatruedir $photCorrSmallGridDir $iteration $applyCommonCalibrationFactor
-
+applyCalibrationFactors $subskySmallGrid_dir $alphatruedir $photCorrSmallGridDir $iteration $calibrationFactorScope
 
 # DIAGNOSIS PLOTs ---------------------------------------------------
 
@@ -2042,9 +2062,20 @@ calibratingMosaic=false
 computeCalibrationFactors $surveyForPhotometry $iteration $imagesForCalibration $selectedCalibrationStarsDir $matchdir $ourDataCatalogueDir $prepareCalibrationCataloguePerFrame $mycatdir $rangeUsedCalibrationDir \
                           $mosaicDir $alphatruedir $calibrationBrightLimitIndividualFrames $calibrationFaintLimitIndividualFrames $apertureUnits $numberOfApertureUnitsForCalibration $calibratingMosaic "'$noisechisel_param'"
 
-if [[ ("$applyCommonCalibrationFactor" = "true") || ("$applyCommonCalibrationFactor" = "True") ]]; then
+if [[ "$calibrationFactorScope" == "individual" ]]; then
+  echo -e "\nUsing each frame's own individual calibration factor - nothing to compute here"
+elif [[ "$calibrationFactorScope" == "global" ]]; then
   computeCommonCalibrationFactor $alphatruedir $iteration $objectName $BDIR
+  commonCalibrationFactorFile="$BDIR/commonCalibrationFactor_it$iteration.txt"
+elif [[ "$calibrationFactorScope" == "perNight" ]]; then
+  computeCommonCalibrationFactorPerNight $alphatruedir $iteration $objectName $BDIR
+  commonCalibrationFactorFile="$BDIR/commonCalibrationFactors_it$iteration.txt"
+else
+  echo "Value of variable calibrationFactorScope ($calibrationFactorScope) not recognised"
+  exit 55
 fi
+
+
 
 
 # DIAGNOSIS PLOT
@@ -2055,9 +2086,10 @@ if [ -f $backgroundBrightnessDone ]; then
 else
   badFilesBackgroundWarningsFile=identifiedBadFrames_backgroundBrightness_it$iteration.txt
   badFilesCalibrationFactorFile=identifiedBadFrames_calibrationFactor_it$iteration.txt
-  python3 $pythonScriptsPath/diagnosis_normalisedBackgroundMagnitudesAndCalibrationFactorPlots.py $noiseskydir $framesForCommonReductionDir $airMassKeyWord $alphatruedir \
+
+  python3 $pythonScriptsPath/diagnosis_normalisedBackgroundMagnitudesAndCalibrationFactorPlots.py $tmpDir $framesForCommonReductionDir $airMassKeyWord $alphatruedir \
                                                                                                   $pixelScale $diagnosis_and_badFilesDir $maximumBackgroundBrightness $badFilesBackgroundWarningsFile \
-                                                                                                  $badFilesCalibrationFactorFile $applyCommonCalibrationFactor $BDIR/commonCalibrationFactor_it$iteration.txt $iteration
+                                                                                                  $badFilesCalibrationFactorFile $calibrationFactorScope $commonCalibrationFactorFile $iteration
   echo "done" > $backgroundBrightnessDone
 fi
 
@@ -2069,7 +2101,7 @@ echo -e "\n ${GREEN} ---Applying calibration factors--- ${NOCOLOUR}"
 alphatruedir=$BDIR/alpha-stars-true_it$iteration
 subskySmallGrid_dir=$BDIR/sub-sky-smallGrid_it$iteration
 photCorrSmallGridDir=$BDIR/photCorrSmallGrid-dir_it$iteration
-applyCalibrationFactors $subskySmallGrid_dir $alphatruedir $photCorrSmallGridDir $iteration $applyCommonCalibrationFactor
+applyCalibrationFactors $subskySmallGrid_dir $alphatruedir $photCorrSmallGridDir $iteration $calibrationFactorScope
 
 if [[ "${produceCoaddPrephot,,}" = "true" ]]; then
   alphatruedir=$BDIR/alpha-stars-true_coaddPrephot_it$iteration

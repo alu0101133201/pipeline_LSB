@@ -1070,6 +1070,7 @@ warpImage() {
 
     # I'm manually propagating the date because is used in some versions of the pipeline (amateur data) but  swarp for some reason propagates it incorrectly
     propagateKeyword $imageToSwarp $dateHeaderKey $entiredir/entirecamera_"$currentIndex".fits 
+    propagateKeyword $imageToSwarp NightNumber $entiredir/entirecamera_"$currentIndex".fits
 }
 export -f warpImage
 
@@ -1621,6 +1622,8 @@ solveField() {
 
         ((attempt++))
     done
+
+    propagateKeyword $i NightNumber $astroimadir/$base
 }
 export -f solveField
 
@@ -2252,6 +2255,7 @@ prepareSurveyDataForPhotometricCalibration() {
     if [[ -f $brickDecalsAssociationFile ]]; then
         rm $brickDecalsAssociationFile
     fi
+    echo python3 $pythonScriptsPath/associateDecalsBricksToFrames.py $referenceImagesForMosaic $imagesHdu $bricksIdentificationFile $brickDecalsAssociationFile $survey
     python3 $pythonScriptsPath/associateDecalsBricksToFrames.py $referenceImagesForMosaic $imagesHdu $bricksIdentificationFile $brickDecalsAssociationFile $survey
    
    
@@ -2799,8 +2803,8 @@ computeCommonCalibrationFactor() {
   local calibrationFactorsDir=$1
   local iteration=$2
   local objectName=$3
-  local BDIR=$4 
-  
+  local BDIR=$4
+
   calibrationFactors=()
   for i in $( ls $calibrationFactorsDir/alpha_"$objectName"*.txt); do
     read currentCalibrationFactor currentStd < $i
@@ -2816,6 +2820,59 @@ computeCommonCalibrationFactor() {
   rm $tmpTableFits
 }
 export -f computeCommonCalibrationFactor
+
+computeCommonCalibrationFactorPerNight() {
+  local calibrationFactorsDir=$1
+  local iteration=$2
+  local objectName=$3
+  local BDIR=$4
+
+  local smallGridDir=$BDIR/pointings_smallGrid
+  local outputFile=$BDIR/commonCalibrationFactors_it$iteration.txt
+  > "$outputFile"
+
+  # Group each frame's own calibration factor by the night it belongs to
+  # (read from the NightNumber header keyword, centralised in
+  # pointings_smallGrid since that folder is never deleted). frameNight is
+  # kept around so the second pass below doesn't need to re-read the header.
+  declare -A nightFactorsList   # night -> newline-separated list of factors
+  declare -A frameNight         # frameNumber -> night
+
+  for i in $( ls $calibrationFactorsDir/alpha_"$objectName"*.txt); do
+    base=$(basename "$i" .txt)
+    frameNumber=${base##*_}   # alpha files are named ..._<frameNumber>.txt, so this is robust even if objectName/filter contain underscores
+    read currentCalibrationFactor currentStd < "$i"
+
+    frameFits="$smallGridDir/entirecamera_${frameNumber}.fits"
+    night=$( astfits "$frameFits" --keyvalue=NightNumber --quiet )
+
+    frameNight[$frameNumber]=$night
+    nightFactorsList[$night]+="$currentCalibrationFactor"$'\n'
+  done
+
+  # One common (sigma-clipped median) calibration factor per night
+  declare -A nightCommonFactor
+  for night in "${!nightFactorsList[@]}"; do
+    tmpTableFits=$BDIR/tableTest_night${night}.fits
+    printf "%s" "${nightFactorsList[$night]}" | asttable -o "$tmpTableFits"
+    commonCalibrationFactor=$( aststatistics "$tmpTableFits" --sigclip-median )
+    nightCommonFactor[$night]=$commonCalibrationFactor
+    echo "$night $commonCalibrationFactor" >> "$outputFile"
+    rm "$tmpTableFits"
+  done
+
+  # Write, into each frame's own header, the common (per-night) calibration
+  # factor that applies to it - so the header self-documents which value was
+  # actually used to calibrate that frame, alongside the text file.
+  for frameNumber in "${!frameNight[@]}"; do
+    night=${frameNight[$frameNumber]}
+    factor=${nightCommonFactor[$night]}
+    frameFits="$smallGridDir/entirecamera_${frameNumber}.fits"
+    astfits "$frameFits" -h1 --write=CalibrationFactor,$factor
+  done
+}
+export -f computeCommonCalibrationFactorPerNight
+
 
 computeCalibrationFactors() {
     local surveyForCalibration=$1
@@ -2882,27 +2939,47 @@ getCommonCalibrationFactor() {
 }   
 export -f getCommonCalibrationFactor
 
+getCommonCalibrationFactorForNight() {
+    local iteration=$1
+    local night=$2
+ 
+    commonFactorFile=$BDIR/commonCalibrationFactors_it$iteration.txt
+    alpha=$(awk -v n="$night" '$1==n {print $2}' $commonFactorFile)
+    echo $alpha
+}
+export -f getCommonCalibrationFactorForNight
+
 applyCalibrationFactorsToFrame() {
     local a=$1
     local imagesForCalibration=$2
     local alphatruedir=$3
     local photCorrDir=$4
     local iteration=$5
-    local applyCommonCalibrationFactor=$6
+    local calibrationFactorScope=$6
 
     f=$imagesForCalibration/entirecamera_"$a".fits
 
-    if [[ "$applyCommonCalibrationFactor" == "true" || "$applyCommonCalibrationFactor" == "True" ]]; then
+    if [[ "$calibrationFactorScope" == "global" ]]; then
         alpha=$( getCommonCalibrationFactor $iteration )
-    elif  [[ "$applyCommonCalibrationFactor" == "false" || "$applyCommonCalibrationFactor" == "False" ]]; then
+    elif [[ "$calibrationFactorScope" == "individual" ]]; then
         alpha=$( getCalibrationFactorForIndividualFrame $a $alphatruedir )
+    elif [[ "$calibrationFactorScope" == "perNight" ]]; then
+        # imagesForCalibration (e.g. sub-sky-smallGrid_it$iteration) doesn't
+        # carry NightNumber - only pointings_smallGrid does, since that's the
+        # centralised location the keyword was propagated into. Same frame
+        # index $a is used across both directories.
+        frameFits="$BDIR/pointings_smallGrid/entirecamera_${a}.fits"
+        night=$( astfits "$frameFits" --keyvalue=NightNumber --quiet )
+        alpha=$( getCommonCalibrationFactorForNight $iteration $night )
     else
-        echo "Value of variable applyCommonCalibrationFactor ($applyCommonCalibrationFactor) not recognised"
+        echo "Value of variable calibrationFactorScope ($calibrationFactorScope) not recognised"
         exit 55
     fi
     astarithmetic $f -h1 $alpha x float32 -o $photCorrDir/entirecamera_"$a".fits
+    echo astarithmetic $f -h1 $alpha x float32 -o $photCorrDir/entirecamera_"$a".fits
 }
 export -f applyCalibrationFactorsToFrame
+
 
 applyCalibrationFactors() {
     local imagesForCalibration=$1
