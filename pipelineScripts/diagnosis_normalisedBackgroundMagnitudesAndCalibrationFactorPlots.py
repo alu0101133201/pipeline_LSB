@@ -553,7 +553,7 @@ commonCalibrationFactorValue=None
 calibrationFactorsStd=None
 perNightCalibrationFactors=None   # night -> factor, only used for the legend/vertical lines
 rejectedFrames_CalibrationFactor=np.array([])
-numberOfSigma = 3
+numberOfSigma = 2
  
 if (calibrationFactorScope == "global"):
     with open(commonCalibrationFactorFile) as f:
@@ -610,15 +610,18 @@ elif (calibrationFactorScope == "perNight"):
             if pd.isna(ownFactor):
                 continue
             if (ownFactor < nightMean - numberOfSigma*nightStd) or (ownFactor > nightMean + numberOfSigma*nightStd):
-                badFilesCalibrationFactor.append(fname)
+                # Extract the frame number here, anchored to its actual
+                # position (_<digits>. right before the extension) - NOT a
+                # bare \d+ search on the full filename later, which would
+                # incorrectly match digits embedded in objectName instead
+                # (e.g. "DDO216") for every single entry.
+                frameNum = re.search(r"_(\d+)\.", fname).group(1)
+                badFilesCalibrationFactor.append(frameNum)
  
-    pattern = r"\d+"
     with open(destinationFolder + "/" + outputFileCalibrationFactors, 'w') as file:
-        for fileName in badFilesCalibrationFactor:
-            match = re.search(pattern, fileName)
-            result = match.group(0)
-            file.write(result + '\n')
-    rejectedFrames_CalibrationFactor = np.array([int(re.search(pattern, f).group(0)) for f in badFilesCalibrationFactor])
+        for frameNum in badFilesCalibrationFactor:
+            file.write(frameNum + '\n')
+    rejectedFrames_CalibrationFactor = np.array([int(f) for f in badFilesCalibrationFactor])
  
     arrayWithFactorToApply = [[x[0], perNightCalibrationFactors.get(frameNight.get(x[0]), np.nan)] for x in totalCalibrationFactors]
  
