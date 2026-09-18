@@ -163,23 +163,21 @@ def saveHistogram(values, rejectedAstrometryIndices, rejectedFWHMIndices, reject
     mean = np.mean(clean_values)
     std = np.std(clean_values)
     filtered_values = clean_values[np.abs(clean_values - mean) <= 3 * std]
-    # myBins = calculateFreedmanBins(filtered_values)
  
     fig, ax = plt.subplots(1, 1, figsize=(12, 12))
     ax.set_title(title, fontsize=22, pad=17)
     plt.tight_layout(pad=7.5)
     configureAxis(ax, xLabel, '', logScale=False)
-    #counts, bins, patches = ax.hist(values, bins=myBins, color="teal")
     counts, bins, patches = ax.hist(values, color="teal")
  
     if (len(rejectedBackgroundIndices) > 0):
-        ax.hist(values[rejectedBackgroundIndices - 1], bins=myBins, color="red", label="Rejected by background brightness")
+        ax.hist(values[rejectedBackgroundIndices - 1], color="red", label="Rejected by background brightness")
     if (len(rejectedFWHMIndices)):
-        ax.hist(values[rejectedFWHMIndices - 1], bins=myBins, color="mediumorchid", label="Rejected by fwhm")
+        ax.hist(values[rejectedFWHMIndices - 1], color="mediumorchid", label="Rejected by fwhm")
     # if (len(rejectedAstrometryIndices)):
-    #     ax.hist(values[rejectedAstrometryIndices - 1], bins=myBins, color="blue", label="Rejected by astrometry")
+    #     ax.hist(values[rejectedAstrometryIndices - 1], color="blue", label="Rejected by astrometry")
     if (len(rejectedCalibrationFactorIndices)):
-        ax.hist(values[rejectedCalibrationFactorIndices - 1], bins=myBins, color="orange", label="Rejected by calibration factor")
+        ax.hist(values[rejectedCalibrationFactorIndices - 1], color="orange", label="Rejected by calibration factor")
  
     if (valuesForMultipleVerticalLines is not None):
         # perNight mode: one vertical line per night's own common calibration
