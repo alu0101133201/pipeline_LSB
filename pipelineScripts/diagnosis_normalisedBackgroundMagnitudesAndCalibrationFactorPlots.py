@@ -482,11 +482,21 @@ if calibrationFactorScope not in ("individual", "global", "perNight"):
  
 setMatplotlibConf()
  
- 
- 
-pattern = os.path.join(folderWithFramesWithAirmasses, "*.fits")
-totalNumberOfFrames = len(glob.glob(pattern))
- 
+def getMaxFrameNumber(folder, globPattern):
+    maxNumber = 0
+    for f in glob.glob(os.path.join(folder, globPattern)):
+        if fnmatch.fnmatch(f, '*done*'):
+            continue
+        match = re.search(r'_(\d+)\.', f)
+        if match:
+            maxNumber = max(maxNumber, int(match.group(1)))
+    return maxNumber
+
+totalNumberOfFrames = max(
+    getMaxFrameNumber(folderWithSkyEstimations, "*.txt"),
+    getMaxFrameNumber(folderWithFramesWithAirmasses, "entirecamera_*.fits"),
+)
+
 # 0.- Identify the files that have been identified as bad frames 
 # We have bad frames due to:
 #   Astrometry
