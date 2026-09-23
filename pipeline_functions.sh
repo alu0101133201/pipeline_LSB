@@ -1283,14 +1283,26 @@ warpImage() {
 
     regionOfDataInFullGrid=$(python3 $pythonScriptsPath/getRegionToCrop.py $frameFullGrid 1)
     read row_min row_max col_min col_max <<< "$regionOfDataInFullGrid"
-    astcrop $frameFullGrid --polygon=$col_min,$row_min:$col_max,$row_min:$col_max,$row_max:$col_min,$row_max --mode=img  -o $entiredir/entirecamera_"$currentIndex".fits --quiet
+    astcrop $frameFullGrid --polygon=$col_min,$row_min:$col_max,$row_min:$col_max,$row_max:$col_min,$row_max --mode=img  -o $entiredir/entirecamera_"$currentIndex".fits 
     echo $row_min $row_max $col_min $col_max > $entiredir/entirecamera_"$currentIndex"_cropRegion.txt
 
     rm $entiredir/"$currentIndex"_swarp_w1.fits $entiredir/"$currentIndex"_swarp1.fits $tmpFile1 $frameFullGrid
-
+    #For some reason, the last code is not working properly in some frames, saving entirecamera_$a in pointings_smallGrid as an h0 with 0s outside, we iterate this
+    #if [ $(astfits $entiredir/entirecamera_"$currentIndex".fits --nhdus -q) -eq 1 ]; then
+	#    mv $entiredir/entirecamera_"$currentIndex".fits $entiredir/"$currentIndex"_temp.fits
+	#    astarithmetic $entiredir/"$currentIndex"_temp.fits -h0 set-i i i 0 eq nan where -o $entiredir/"$currentIndex"_temp2.fits
+	#    rm $entiredir/"$currentIndex"_temp.fits
+	#    regionOfDataInFullGrid=$(python3 $pythonScriptsPath/getRegionToCrop.py $entiredir/"$currentIndex"_temp2.fits 1)
+	#    read row_min row_max col_min col_max <<< "$regionOfDataInFullGrid"
+	#    astcrop $entiredir/"$currentIndex"_temp2.fits --polygon=$col_min,$row_min:$col_max,$row_min:$col_max,$row_max:$col_min,$row_max --mode=img -o $entiredir/entirecamera_"$currentIndex".fits -q
+	#    echo $row_min $row_max $col_min $col_max > $entiredir/entirecamera_"$currentIndex"_cropRegion.txt
+	#    rm $entiredir/"$currentIndex"_temp2.fits
+	#    echo "The common way to run warpImage has failed for {$currentIndex}"
+    #fi
     # I'm manually propagating the date because is used in some versions of the pipeline (amateur data) but  swarp for some reason propagates it incorrectly
     propagateKeyword $imageToSwarp $dateHeaderKey $entiredir/entirecamera_"$currentIndex".fits 
     propagateKeyword $imageToSwarp $airMassKeyWord $entiredir/entirecamera_"$currentIndex".fits
+    propagateKeyword $imageToSwarp NightNumber $entiredir/entirecamera_"$currentIndex".fits
 }
 export -f warpImage
 
@@ -1828,7 +1840,7 @@ solveField() {
     local astroimadir=$8
     local sexcfg_sf=$9
     local sizeOfOurFieldDegrees=${10}
-    local indexDir=${11}
+    local taskTmpDir=${11}
     base=$( basename $i)
 
 
@@ -1883,7 +1895,7 @@ solveField() {
         --overwrite --extension 1 --config $confFile/astrometry_$objectName.cfg --no-verify \
         --use-source-extractor --source-extractor-path=$sex_path \
         --source-extractor-config=$sexcfg_sf --x-column X_IMAGE --y-column Y_IMAGE \
-        --sort-column MAG_AUTO --sort-ascending \
+        --sort-column MAG_AUTO --sort-ascending --temp-dir "$taskTmpDir" \
         -Unone --temp-axy  -Snone -Mnone -Rnone -Bnone -N$astroimadir/$base ;
 
         if [ -s "$layer_temp" ]; then
@@ -1893,6 +1905,8 @@ solveField() {
 
         ((attempt++))
     done
+    propagateKeyword $i NightNumber $astroimadir/$base
+
 }
 export -f solveField
 
@@ -3140,6 +3154,58 @@ computeCommonCalibrationFactor() {
 }
 export -f computeCommonCalibrationFactor
 
+computeCommonCalibrationFactorPerNight() {
+  local calibrationFactorsDir=$1
+  local iteration=$2
+  local objectName=$3
+  local BDIR=$4
+
+  local smallGridDir=$BDIR/pointings_smallGrid
+  local outputFile=$BDIR/commonCalibrationFactors_it$iteration.txt
+  > "$outputFile"
+
+  # Group each frame's own calibration factor by the night it belongs to
+  # (read from the NightNumber header keyword, centralised in
+  # pointings_smallGrid since that folder is never deleted). frameNight is
+  # kept around so the second pass below doesn't need to re-read the header.
+  declare -A nightFactorsList   # night -> newline-separated list of factors
+  declare -A frameNight         # frameNumber -> night
+
+  for i in $( ls $calibrationFactorsDir/alpha_"$objectName"*.txt); do
+    base=$(basename "$i" .txt)
+    frameNumber=${base##*_}   # alpha files are named ..._<frameNumber>.txt, so this is robust even if objectName/filter contain underscores
+    read currentCalibrationFactor currentStd < "$i"
+
+    frameFits="$smallGridDir/entirecamera_${frameNumber}.fits"
+    night=$( astfits "$frameFits" --keyvalue=NightNumber --quiet )
+
+    frameNight[$frameNumber]=$night
+    nightFactorsList[$night]+="$currentCalibrationFactor"$'\n'
+  done
+
+  # One common (sigma-clipped median) calibration factor per night
+  declare -A nightCommonFactor
+  for night in "${!nightFactorsList[@]}"; do
+    tmpTableFits=$BDIR/tableTest_night${night}.fits
+    printf "%s" "${nightFactorsList[$night]}" | asttable -o "$tmpTableFits"
+    commonCalibrationFactor=$( aststatistics "$tmpTableFits" --sigclip-median )
+    nightCommonFactor[$night]=$commonCalibrationFactor
+    echo "$night $commonCalibrationFactor" >> "$outputFile"
+    rm "$tmpTableFits"
+  done
+
+  # Write, into each frame's own header, the common (per-night) calibration
+  # factor that applies to it - so the header self-documents which value was
+  # actually used to calibrate that frame, alongside the text file.
+  for frameNumber in "${!frameNight[@]}"; do
+    night=${frameNight[$frameNumber]}
+    factor=${nightCommonFactor[$night]}
+    frameFits="$smallGridDir/entirecamera_${frameNumber}.fits"
+    astfits "$frameFits" -h1 --write=CalibrationFactor,$factor
+  done
+}
+export -f computeCommonCalibrationFactorPerNight
+
 computeCalibrationFactors() {
     local surveyForCalibration=$1
     local iteration=$2
@@ -3226,22 +3292,36 @@ getCommonCalibrationFactor() {
 }   
 export -f getCommonCalibrationFactor
 
+getCommonCalibrationFactorForNight() {
+    local iteration=$1
+    local night=$2
+
+    commonFactorFile=$BDIR/commonCalibrationFactors_it$iteration.txt
+    alpha=$(awk -v n="$night" '$1==n {print $2}' $commonFactorFile)
+    echo $alpha
+}
+export -f getCommonCalibrationFactorForNight
+
 applyCalibrationFactorsToFrame() {
     local a=$1
     local imagesForCalibration=$2
     local alphatruedir=$3
     local photCorrDir=$4
     local iteration=$5
-    local applyCommonCalibrationFactor=$6
+    local calibrationFactorScope=$6
 
     f=$imagesForCalibration/entirecamera_"$a".fits
-
-    if [[ "$applyCommonCalibrationFactor" == "true" || "$applyCommonCalibrationFactor" == "True" ]]; then
+    
+    if [[ "$calibrationFactorScope" == "global" ]]; then
         alpha=$( getCommonCalibrationFactor $iteration )
-    elif  [[ "$applyCommonCalibrationFactor" == "false" || "$applyCommonCalibrationFactor" == "False" ]]; then
+    elif [[ "$calibrationFactorScope" == "individual" ]]; then
         alpha=$( getCalibrationFactorForIndividualFrame $a $alphatruedir )
+    elif [[ "$calibrationFactorScope" == "perNight" ]]; then
+	    frameFits="$BDIR/pointings_smallGrid/entirecamera_${a}.fits"
+	    night=$( astfits "$frameFits" --keyvalue=NightNumber -q)
+	    alpha=$( getCommonCalibrationFactorForNight $iteration $night )
     else
-        echo "Value of variable applyCommonCalibrationFactor ($applyCommonCalibrationFactor) not recognised"
+        echo "Value of variable calibrationFactorScope ($calibrationFactorScope) not recognised"
         exit 55
     fi
     echo astarithmetic $f -h1 $alpha x float32 -o $photCorrDir/entirecamera_"$a".fits
@@ -4502,11 +4582,7 @@ renameFiles(){
     echo done > "$framesForCommonReductionDir/rename_done.txt"
   fi
 
-  if [ -f "$totalFramesFile" ]; then
-    echo "Total number of frames already counted"
-  else
-    ls "$framesForCommonReductionDir"/*.fits | wc -l > "$totalFramesFile"
-  fi
+  ls "$framesForCommonReductionDir"/*.fits | wc -l > "$totalFramesFile"
   totalNumberOfFrames=$(cat "$totalFramesFile")
   export totalNumberOfFrames
   echo -e "* Total number of frames to combine: ${GREEN} $totalNumberOfFrames ${NOCOLOUR} *"
@@ -4515,7 +4591,7 @@ export -f renameFiles
 
 runAstrometrySetup() {
   astrocfg=$CDIR/astrometry_$objectName.cfg
-  indexdir=$BDIR/indexes
+  indexdir=$DIR/indexes
 
   rm -f $astrocfg
   echo inparallel > $astrocfg
@@ -4572,7 +4648,10 @@ runAstrometryPhase() {
             frameNames+=("$framesForCommonReductionDir/$a.fits")
         fi
     done
-    printf "%s\n" "${frameNames[@]}" | parallel -j "$num_cpus" solveField {} $solve_field_L_Param $solve_field_H_Param $solve_field_u_Param $ra_gal $dec_gal $CDIR $astroimadir $sexcfg_sf $sizeOfOurFieldDegrees
+    local taskTmpDir=$DIR/tmp/$SLURM_JOB_ID/$SLURM_PROCID
+    mkdir -p $taskTmpDir
+    printf "%s\n" "${frameNames[@]}" | parallel -j "$num_cpus" solveField {} $solve_field_L_Param $solve_field_H_Param $solve_field_u_Param $ra_gal $dec_gal $CDIR $astroimadir $sexcfg_sf $sizeOfOurFieldDegrees $taskTmpDir
+    rm -rf $taskTmpDir
     echo done > "$taskDone"
 }
 export -f runAstrometryPhase
@@ -4722,6 +4801,46 @@ runWarpPhase() {
 }
 export -f runWarpPhase
 
+runCheckFinalAstrometry() {
+	# It might happen that some frames are lost due to astrometry between astro-ima and swarp. 
+	# Due to the high ammount of frames, losing few frames is not critical (unless it should be considered for future)
+	# But it generates a bug where totalNumberOfFrames in the .txt is higher than the number of entirecamera*, crashing the diagnostic plots
+	# Here we check this
+    	local totalFramesFile="$framesForCommonReductionDir/totalNumberOfFrames.txt"
+
+    	[[ -f "$totalFramesFile" ]] || { echo "ERROR: Missing $totalFramesFile"; return 1; }
+
+    	local totalNumberOfFrames
+    	totalNumberOfFrames=$(cat "$totalFramesFile")
+    	export totalNumberOfFrames
+
+    	local entiredir_smallGrid="$BDIR/pointings_smallGrid"
+    	local fits_files=("$entiredir_smallGrid"/*.fits)
+
+    	local num_entiredir=0
+    	[[ -e "${fits_files[0]}" ]] && num_entiredir=${#fits_files[@]}
+
+    	if (( totalNumberOfFrames > num_entiredir )); then
+        	local counter=1
+		local tmpdir="$BDIR/tempDir"
+		mkdir $tmpdir
+		for fits in "${fits_files[@]}"; do
+			local a
+			a=$(basename "$fits" .fits | sed 's/entirecamera_//')
+			local txt="$entiredir_smallGrid/entirecamera_${a}_cropRegion.txt"
+			mv "$fits" "$tmpdir/entirecamera_${counter}.fits"
+			[[ -f "$txt" ]] && mv "$txt" "$tmpdir/entirecamera_${counter}_cropRegion.txt"
+			((counter++))
+		done
+		rm -f "$entiredir_smallGrid"/entirecamera_*_cropRegion.txt
+		mv "$tmpdir"/entirecamera_* "$entiredir_smallGrid"/
+		rm -rf "$tmpdir"
+		echo "$num_entiredir" > "$totalFramesFile"
+
+    	fi
+}
+export -f runCheckFinalAstrometry
+
 runMaskAndSkyPhase() {
     # Runs on every task of one multi-task step. Must run in a separate srun
     # step after warp has fully finished for every frame, same reasoning as
@@ -4780,7 +4899,6 @@ runMaskAndSkyPhase() {
  
     noiseskydone="$noiseskydir/done_task${SLURM_PROCID}.txt"
     computeSky $framesToUseDir $noiseskydir $noiseskydone true $constantSkyMethod $polyDegree $imagesAreMasked $ringDir $USE_COMMON_RING $keyWordToDecideRing $keyWordThreshold $keyWordValueForFirstRing $keyWordValueForSecondRing $ringWidth $blockScale "'$noisechisel_param'" "'$maskParams'"
- 
     subskySmallGrid_done="$subskySmallGrid_dir/done_task${SLURM_PROCID}.txt"
     subtractSky $skySubtractInputDir $subskySmallGrid_dir $subskySmallGrid_done $noiseskydir true
 }
@@ -4954,11 +5072,24 @@ runCalibrationFactorsDiagnosticsPhase() {
       python3 $pythonScriptsPath/diagnosis_numOfStarsUsedInCalibration.py $alphatruedir/numberOfStarsUsedToCalibrate_it"$iteration".txt $numberOfStarsUsedInEachFramePlot
       echo done > $numberOfStarsUsedInEachFrameDone
     fi
- 
-    applyCommonCalibrationFactor=true
-    if [[ ("$applyCommonCalibrationFactor" = "true") || ("$applyCommonCalibrationFactor" = "True") ]]; then
+	# calibrationFactorScope controls how calibration factors are computed/applied:
+	#   individual - each frame keeps its own, individually-computed calibration factor (nothing computed here)
+	#   global     - one common calibration factor across every frame in the run
+	#   perNight   - one common calibration factor per night (computeCommonCalibrationFactorPerNight)
+    calibrationFactorScope=perNight
+    commonCalibrationFactorFile=""
+    if [[ "$calibrationFactorScope" == "individual" ]]; then
+      echo -e "\nUsing each frame's own individual calibration factor - nothing to compute here"
+    elif [[ "$calibrationFactorScope" == "global" ]]; then
       computeCommonCalibrationFactor $alphatruedir $iteration $objectName $BDIR
-    fi
+      commonCalibrationFactorFile="$BDIR/commonCalibrationFactor_it$iteration.txt"
+    elif [[ "$calibrationFactorScope" == "perNight" ]]; then
+      computeCommonCalibrationFactorPerNight $alphatruedir $iteration $objectName $BDIR
+      commonCalibrationFactorFile="$BDIR/commonCalibrationFactors_it$iteration.txt"
+    else
+      echo "Value of variable calibrationFactorScope ($calibrationFactorScope) not recognised"
+      exit 55
+    fi 
 }
 export -f runCalibrationFactorsDiagnosticsPhase
 
@@ -4976,8 +5107,8 @@ runApplyCalibrationFactorsPhase() {
     alphatruedir=$BDIR/alpha-stars-true_it$iteration
     subskySmallGrid_dir=$BDIR/sub-sky-smallGrid_it$iteration
     photCorrSmallGridDir=$BDIR/photCorrSmallGrid-dir_it$iteration
-    applyCommonCalibrationFactor=true
- 
+    calibrationFactorScope=perNight
+
     totalFramesFile="$framesForCommonReductionDir/totalNumberOfFrames.txt"
     totalNumberOfFrames=$(cat "$totalFramesFile")
     export totalNumberOfFrames
@@ -4992,7 +5123,7 @@ runApplyCalibrationFactorsPhase() {
     export iterationsForStdSigClip
  
     echo -e "\n ${GREEN} ---Applying calibration factors--- ${NOCOLOUR}"
-    applyCalibrationFactors $subskySmallGrid_dir $alphatruedir $photCorrSmallGridDir $iteration $applyCommonCalibrationFactor
+    applyCalibrationFactors $subskySmallGrid_dir $alphatruedir $photCorrSmallGridDir $iteration $calibrationFactorScope
 }
 export -f runApplyCalibrationFactorsPhase
  
@@ -5087,9 +5218,19 @@ runBackgroundDiagnosisPhase() {
     entiredir_smallGrid=$BDIR/pointings_smallGrid
     alphatruedir=$BDIR/alpha-stars-true_it$iteration
     tmpDir=$BDIR/noise-sky_it$iteration
-    applyCommonCalibrationFactor=true
     mkdir -p "$diagnosis_and_badFilesDir"
- 
+    calibrationFactorScope=perNight
+    commonCalibrationFactorFile=""
+    if [[ "$calibrationFactorScope" == "individual" ]]; then
+     echo -e "\nUsing each frame's own individual calibration factor - nothing to compute here"
+    elif [[ "$calibrationFactorScope" == "global" ]]; then
+     commonCalibrationFactorFile="$BDIR/commonCalibrationFactor_it$iteration.txt"
+    elif [[ "$calibrationFactorScope" == "perNight" ]]; then
+     commonCalibrationFactorFile="$BDIR/commonCalibrationFactors_it$iteration.txt"
+    else
+     echo "Value of variable calibrationFactorScope ($calibrationFactorScope) not recognised"
+     exit 55
+    fi
     backgroundBrightnessDone=$diagnosis_and_badFilesDir/backgroundBrightness_it$iteration.done
     if [ -f $backgroundBrightnessDone ]; then
       echo -e "\nDiagnosis based on background brightness already done"
@@ -5098,7 +5239,7 @@ runBackgroundDiagnosisPhase() {
       badFilesCalibrationFactorFile=identifiedBadFrames_calibrationFactor_it$iteration.txt
       python3 $pythonScriptsPath/diagnosis_normalisedBackgroundMagnitudesAndCalibrationFactorPlots.py $tmpDir $entiredir_smallGrid $airMassKeyWord $alphatruedir \
                                                                                                         $pixelScale $diagnosis_and_badFilesDir $maximumBackgroundBrightness $badFilesBackgroundWarningsFile \
-                                                                                                        $badFilesCalibrationFactorFile $applyCommonCalibrationFactor $BDIR/commonCalibrationFactor_it$iteration.txt $iteration
+                                                                                                        $badFilesCalibrationFactorFile $calibrationFactorScope $commonCalibrationFactorFile $iteration
       echo "done" > $backgroundBrightnessDone
     fi
 }

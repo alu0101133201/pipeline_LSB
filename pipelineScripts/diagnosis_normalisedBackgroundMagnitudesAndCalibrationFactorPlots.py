@@ -98,6 +98,10 @@ def obtainAirmassFromFile(currentFile, airMassesFolder, airMassKeyWord):
     airMass = obtainKeyWordFromFits(fitsFilePath, airMassKeyWord)
     return(airMass)
 
+def obtainNightForFrameNumber(frameNumber, folderWithFramesWithAirmasses):
+    fitsFilePath=os.path.join(folderWithFramesWithAirmasses,f"entirecamera_{frameNumber}.fits")
+    return(int(obtainKeyWordFromFits(fitsFilePath,"NightNumber")))
+
 def obtainNormalisedBackground(currentFile, folderWithAirMasses, airMassKeyWord):
     backgroundValue = -1
 
@@ -112,6 +116,7 @@ def obtainNormalisedBackground(currentFile, folderWithAirMasses, airMassKeyWord)
 
         if (numberOfFields == 5) or (numberOfFields == 3):
             backgroundValue = float(splittedLine[1])
+            stdValue=float(splittedLine[2])
         elif (numberOfFields == 1):
             return(float('nan'), float('nan')) # Frame which has been lost in reduction (e.g. failed to astrometrise). Just jump to the next iteration
         else:
@@ -122,7 +127,7 @@ def obtainNormalisedBackground(currentFile, folderWithAirMasses, airMassKeyWord)
     except:
         print("Something went wrong in obtaining the airmass, returning nans (file " + str(currentFile) + ")")
         return(float('nan'), float('nan')) 
-    return(backgroundValue, backgroundValue / airmass)
+    return(backgroundValue, backgroundValue / airmass,stdValue)
     
 def retrieveCalibrationFactors(currentFile):
     with open(currentFile, 'r') as f:
@@ -157,34 +162,37 @@ def calculateFreedmanBins(data, initialValue = None):
 
     return(bins)
 
-def saveHistogram(values, rejectedAstrometryIndices, rejectedFWHMIndices, rejectedBackgroundIndices, rejectedCalibrationFactorIndices, title, xLabel, imageName, valueForMeanVerticalLine=None, valueForStdVerticalLines=None):
+def saveHistogram(values, rejectedAstrometryIndices, rejectedFWHMIndices, rejectedBackgroundIndices, rejectedCalibrationFactorIndices, title, xLabel, imageName, valueForMeanVerticalLine=None, valueForStdVerticalLines=Nonei,valuesForMultipleVerticalLines=None):
     clean_values = values[~np.isnan(values)]
     mean = np.mean(clean_values)
     std = np.std(clean_values)
     filtered_values = clean_values[np.abs(clean_values - mean) <= 3 * std]
-    myBins = calculateFreedmanBins(filtered_values)
+    #myBins = calculateFreedmanBins(filtered_values)
 
     fig, ax = plt.subplots(1, 1, figsize=(12, 12))
     ax.set_title(title, fontsize=22, pad=17)
     plt.tight_layout(pad=7.5)
     configureAxis(ax, xLabel, '', logScale=False)
-    counts, bins, patches = ax.hist(values, bins=myBins, color="teal")
+    counts, bins, patches = ax.hist(values, color="teal")
 
     if (len(rejectedBackgroundIndices) > 0):
-        ax.hist(values[rejectedBackgroundIndices - 1], bins=myBins, color="red", label="Rejected by background brightness")
+        ax.hist(values[rejectedBackgroundIndices - 1], color="red", label="Rejected by background brightness")
     if (len(rejectedFWHMIndices)):
-        ax.hist(values[rejectedFWHMIndices - 1], bins=myBins, color="mediumorchid", label="Rejected by fwhm")
+        ax.hist(values[rejectedFWHMIndices - 1], color="mediumorchid", label="Rejected by fwhm")
     # if (len(rejectedAstrometryIndices)):
     #     ax.hist(values[rejectedAstrometryIndices - 1], bins=myBins, color="blue", label="Rejected by astrometry")
     if (len(rejectedCalibrationFactorIndices)):
-        ax.hist(values[rejectedCalibrationFactorIndices - 1], bins=myBins, color="orange", label="Rejected by calibration factor")
+        ax.hist(values[rejectedCalibrationFactorIndices - 1],  color="orange", label="Rejected by calibration factor")
 
-    if (valueForMeanVerticalLine):
-        plt.axvline(x=valueForMeanVerticalLine, color='blue', ls='--', lw=2.5, label="Common calibration factor")
-    if (valueForStdVerticalLines):
-            plt.axvline(x=valueForMeanVerticalLine + numberOfSigma*valueForStdVerticalLines, color='grey', ls='-.', lw=2, label=f'{numberOfSigma} sigma std')
-            plt.axvline(x=valueForMeanVerticalLine - numberOfSigma*valueForStdVerticalLines, color='grey', ls='-.', lw=2)
-
+    if (valuesForMultipleVerticalLines is not None):
+        for idx, (night, nightFactor) in enumerate(sorted(valuesForMultipleVerticalLines.items())):
+            plt.axvilne(x=nightFactor,color='blue',ls='--',lw=2.0,label=f"Night {night}" if idx < 12 else None)
+    else:
+        if (valuesForMeanVerticalLine):
+            plt.axvline(x=valueForMeanVerticalLine,color='blue',ls='--',lw=2.5,label="Common calibration factor")
+        if (valuesForStdVerticalLines):
+            plt.axvline(x=valueForMeanVerticalLine+numberOfSigma*valueForStdVerticalLines,color='grey',ls='-.',lw=2,label=f'{numberOfSigma} sigma std')
+            plt.axvline(x=valueForMeanVerticalLine-numberOfSigma*valueForStdVerticalLines,color='grey',ls='-.',lw=2)
     ax.set_xlim((np.nanmedian(filtered_values) - 3*np.nanstd(filtered_values)), (np.nanmedian(filtered_values) + 3*np.nanstd(filtered_values)))
 
     max_bin_height = counts.max() + 5
@@ -421,11 +429,13 @@ def getIndicesOfRejectedFrames(normalisedBackgroundValuesArray, rejectedFrames):
         rejectedFrames
     return(indices)
 
-def identifyBadFramesBasedOnBackgroundBrightness(files, data, threshold):
+def identifyBadFramesBasedOnBackgroundBrightness(files, data, threshold,stds):
     badFiles   = []
     badBackground = []
     for i in range(len(files)):
-        if (data[i] < threshold):
+        if not isinstance(files[i], str):
+            continue
+        if ((data[i] < threshold) or (stds[i]==0) or np.isnan(stds[i])):
             badFiles.append((files[i].split("/")[-1].split("_")[1].split(".")[:-1][0]))
             badBackground.append(data[i])
     badFiles = np.array(badFiles)
@@ -470,13 +480,9 @@ commonCalibrationFactorFile   = sys.argv[11]
 iteration = sys.argv[12]
 
 
-if (useCommonCalibrationFactorFlag.lower() == "true"):
-    useCommonCalibrationFactorFlag = True
-elif (useCommonCalibrationFactorFlag.lower() == "false"):
-    useCommonCalibrationFactorFlag = False
-else:
-    raise Exception("Value of variable (useCommonCalibrationFactorFlag) not recognised. Expected true or false")
-    exit()
+calibrationFactorScope=useCommonCalibrationFactorFlag.strip()
+if calibrationFactorScope not in ("individual","global","perNight"):
+    raise Exception(f"Value of variable calibrationFactorScope ({calibrationFactorScope}) not recognised. Expected individual, global or perNight")
 
 setMatplotlibConf()
 
@@ -506,6 +512,7 @@ rejectedFrames_FWHM = np.array(rejectedFrames_FWHM)
 # 1.- Obtain the normalised background values ------------------
 originalBackgroundValues =  np.array([[np.nan, np.nan] for _ in range(totalNumberOfFrames)], dtype=object)
 normalisedBackgroundValues =  np.array([[np.nan, np.nan] for _ in range(totalNumberOfFrames)], dtype=object)
+originalSTDValues = np.array([[np.nan, np.nan] for _ in range(totalNumberOfFrames)], dtype=object)
 files = np.full(totalNumberOfFrames, np.nan, dtype=object)
  
 for currentFile in glob.glob(folderWithSkyEstimations + "/*.txt"):
@@ -518,10 +525,11 @@ for currentFile in glob.glob(folderWithSkyEstimations + "/*.txt"):
     else:
         raise Exception(f"Number not found in the file name ({currentFile}). Something went wrong here")
 
-    originalBackground, normalisedBackground = obtainNormalisedBackground(currentFile, folderWithFramesWithAirmasses, airMassKeyWord)
+    originalBackground, normalisedBackground, originalSTD = obtainNormalisedBackground(currentFile, folderWithFramesWithAirmasses, airMassKeyWord)
     files[number-1] = currentFile
     normalisedBackgroundValues[number-1] = [currentFile.split('/')[-1], normalisedBackground]
     originalBackgroundValues[number-1] = [currentFile.split('/')[-1], originalBackground]
+    originalSTDValues[number-1] = [currentFile.split('/')[-1],originalSTD]
 
 
 files = np.array(files)
@@ -545,34 +553,68 @@ for currentFile in glob.glob(folderWithCalibrationFactors + "/alpha_*Decals*.txt
 # 3.- Retrieve the common calibration factor (if using the common factor)
 commonCalibrationFactorValue=None
 calibrationFactorsStd=None
+preNightCalibrationFactors=None
+numberOfSigma=3
 rejectedFrames_CalibrationFactor=np.array([])
-if (useCommonCalibrationFactorFlag):
+if (calibrationFactorScope == "global"):
     with open(commonCalibrationFactorFile) as f:
         fileContent = f.read().split()
         commonCalibrationFactorValue = float(fileContent[0])
         calibrationFactorsStd = float(fileContent[1])
-
-        # 3.5.-  Identify frames that are outside the Nsigma limit of the dist
-        numberOfSigma = 3
-        badFilesCalibrationFactor, _ = identifyBadFramesBasedOnCalibrationFactors(totalCalibrationFactors, commonCalibrationFactorValue, calibrationFactorsStd, numberOfSigma)
-        
-        pattern = r"\d+"
-        with open(destinationFolder + "/" + outputFileCalibrationFactors, 'w') as file:
-            for fileName in badFilesCalibrationFactor:
-                match = re.search(pattern, fileName)
-                result = match.group(0)
-                file.write(result + '\n')
-        rejectedFrames_CalibrationFactor = np.array(badFilesCalibrationFactor).astype(int)
-
-
-# 4.- Apply common/individual calibration factors
-if (useCommonCalibrationFactorFlag):
-    arrayWithCommonFactor = [[x[0], commonCalibrationFactorValue] for x in totalCalibrationFactors]
-    valuesCalibratedOriginal = applyCalibrationFactorsToBackgroundValues(originalBackgroundValues, arrayWithCommonFactor)
-    valuesCalibratedNormalised = applyCalibrationFactorsToBackgroundValues(normalisedBackgroundValues, arrayWithCommonFactor)
+    badFilesCalibrationFactor, _ = identifyBadFramesBasedOnCalibrationFactors(totalCalibrationFactors,commonCalibrationFactorValues,calibrationFactorsStd,numberOfSigma)
+    pattern=r"\d+"
+    with open(destinationFolder+"/"+outputFileCalibrationFactors,'w') as file:
+        for fileName in badFilesCalibrationFactor:
+            match=re.search(pattern,fileName)
+            result=match.group(0)
+            file.write(result+'\n')
+    rejectedFrames_CalibrationFactor = np.array(badFilesCalibrationFactor).astype(int)
+    arrayWithFactorToApply = [[x[0],commonCalibrationFactorValue] for x in totalCalibratioFactors]
+elif (calibrationFactorScope == "perNight"):
+    perNightCalibrationFactors = {}
+    with open(commonCalibraitonFactorFile) as f:
+        for line in f:
+            parts=line.strip().split()
+            if len(parts) == 2:
+                night, factor = parts
+                perNightCalibrationFactors[int(night)] = float(factor)
+    nightToOwnFactors={}
+    frameNight={}
+    for x in totalCalibrationFactors:
+        fname, ownFactor = x[0], x[1]
+        if pd.isna(fname):
+            continue
+        frameNumber = re.search(r"_(\d+)\.",fname).group(1)
+        night=obtainNightForFrameNumber(frameNumber,folderWithFramesWithAirmasses)
+        frameNight[fname] = night
+        nightToOwnFactors.setdefault(night,[]).append((fname,ownFactor))
+            
+    badFilesCalibrationFactor = []
+    for night, entries in nightToOwnFactors.items():
+        vals=np.array([v for _, v in entries], dtype=float)
+        vals=vals[~np.isnan(vals)]
+        if len(vals) == 0:
+            continue
+        nightMean=np.mean(vals)
+        nightStd=np.std(vals)
+        for fname, ownFactor in entries:
+            if pd.isna(ownFactor):
+                continue
+            if (ownFactor < nightMean - numberOfSigma*nightStd) or (ownFactor > nightMean + numberOfSigma*nightStd):
+                badFilesCalibrationFactor.append(fname)
+    pattern=r"\d+"
+    with open(destinationFolder+"/"+outputFileCalibrationFactors,'w') as file:
+        for fileName in badFilesCalibrationFactor:
+            match=re.search(pattern,fileName)
+            result=match.group(0)
+            file.write(result+'\n')
+    rejectedFrames_calibrationFactor=np.array([int(re.search(pattern,f).group(0)) for f in badFilesCalibrationFactor])
+    arrayWithFactorToApply=[[x[0],perNightCalibrationFactors.get(frameNight.get(x[0]),np.nan)] for x in totalCalibrationFactors]
 else:
-    valuesCalibratedOriginal = applyCalibrationFactorsToBackgroundValues(originalBackgroundValues, totalCalibrationFactors)
-    valuesCalibratedNormalised = applyCalibrationFactorsToBackgroundValues(normalisedBackgroundValues, totalCalibrationFactors)
+    arrayWithFactorToApply=totalCalibraitonFactors
+
+valuesCalibratedOriginal = applyCalibrationFactorsToBackgroundValues(originalBackgroundValues,arrayWithFactorToApply)
+valuesCalibratedNormalised=applyCalibrationFactorsToBackgroundValues(normalisedBackgroundValues,arrayWithFactorToApply)
     
 magnitudesPerArcSecSqOriginal = countsToSurfaceBrightnessUnits(valuesCalibratedOriginal, arcsecPerPx)
 magnitudesPerArcSecSqNormalised = countsToSurfaceBrightnessUnits(valuesCalibratedNormalised, arcsecPerPx)
@@ -582,7 +624,7 @@ magnitudesPerArcSecSqNormalised = countsToSurfaceBrightnessUnits(valuesCalibrate
 with open(destinationFolder + f"/backgroundMagnitudes_it{iteration}.dat", 'w') as f:
     for i in range(len(magnitudesPerArcSecSqNormalised)):
         f.write(str(files[i]) + " " + str(magnitudesPerArcSecSqNormalised[i]) + ("\n"))
-badFilesBackground, _, _ = identifyBadFramesBasedOnBackgroundBrightness(files, magnitudesPerArcSecSqNormalised, maxmimumBackgroundBrightness)
+badFilesBackground, _, _ = identifyBadFramesBasedOnBackgroundBrightness(files, magnitudesPerArcSecSqNormalised, maxmimumBackgroundBrightness,originalSTDValues[:,1])
 
 pattern = r"\d+"
 with open(destinationFolder + "/" + outputFileBackground, 'w') as file:
@@ -601,7 +643,7 @@ saveHistogram(np.array(magnitudesPerArcSecSqNormalised), rejectedFrames_astromet
 
 
 saveHistogram(np.array([x[1] for x in totalCalibrationFactors]), rejectedFrames_astrometry, rejectedFrames_FWHM, rejectedFrames_Background, rejectedFrames_CalibrationFactor, \
-                "Distribution of calibration factors", 'Calibration factors', destinationFolder + f"/calibrationFactorsHist_it{iteration}.png", commonCalibrationFactorValue, calibrationFactorsStd)
+                "Distribution of calibration factors", 'Calibration factors', destinationFolder + f"/calibrationFactorsHist_it{iteration}.png", commonCalibrationFactorValue, calibrationFactorsStd,perNightCalibrationFactors)
 
 
 saveScatterFactors(totalCalibrationFactors, rejectedFrames_astrometry, rejectedFrames_FWHM, rejectedFrames_Background, rejectedFrames_CalibrationFactor, \

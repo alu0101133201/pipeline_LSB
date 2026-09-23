@@ -344,6 +344,7 @@ oneNightPreProcessing() {
  		    air=$(python3 $pythonScriptsPath/get_airmass_teo.py $i $dateHeaderKey $ra_gal $dec_gal $telescopeLat $telescopeLong $telescopeElevation)
        	astfits $i --write=$airMassKeyWord,$air,"Updated from secz"
       fi
+    	
       echo $air >> $skydir/airmass.txt
     done
     echo done > $skydone
@@ -613,6 +614,8 @@ oneNightPreProcessing() {
     for a in $(seq 1 $n_exp); do
       base="$objectName"-Decals-"$filter"_n"$currentNight"_f"$a"_ccd"$h".fits
       cp $maskedcornerdir/$base $framesForCommonReductionDir/$base
+      astfits $framesForCommonReductionDir/$base -h1 --write=ORIGINAL_FILE,$base
+      astfits $framesForCommonReductionDir/$base -h1 --write=NightNumber,$currentNight
     done
     echo "done" > $framesForCommonReductionDone
     rm $maskedcornerdir/*.fits 
@@ -671,6 +674,7 @@ if [ -n "$PHASE" ]; then
       ;;
     warp)
       runWarpPhase
+      runCheckFinalAstrometry
       exit 0
       ;;
     sky)
