@@ -674,7 +674,6 @@ if [ -n "$PHASE" ]; then
       ;;
     warp)
       runWarpPhase
-      runCheckFinalAstrometry
       exit 0
       ;;
     sky)

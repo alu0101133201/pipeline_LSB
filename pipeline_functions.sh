@@ -4801,46 +4801,6 @@ runWarpPhase() {
 }
 export -f runWarpPhase
 
-runCheckFinalAstrometry() {
-	# It might happen that some frames are lost due to astrometry between astro-ima and swarp. 
-	# Due to the high ammount of frames, losing few frames is not critical (unless it should be considered for future)
-	# But it generates a bug where totalNumberOfFrames in the .txt is higher than the number of entirecamera*, crashing the diagnostic plots
-	# Here we check this
-    	local totalFramesFile="$framesForCommonReductionDir/totalNumberOfFrames.txt"
-
-    	[[ -f "$totalFramesFile" ]] || { echo "ERROR: Missing $totalFramesFile"; return 1; }
-
-    	local totalNumberOfFrames
-    	totalNumberOfFrames=$(cat "$totalFramesFile")
-    	export totalNumberOfFrames
-
-    	local entiredir_smallGrid="$BDIR/pointings_smallGrid"
-    	local fits_files=("$entiredir_smallGrid"/*.fits)
-
-    	local num_entiredir=0
-    	[[ -e "${fits_files[0]}" ]] && num_entiredir=${#fits_files[@]}
-
-    	if (( totalNumberOfFrames > num_entiredir )); then
-        	local counter=1
-		local tmpdir="$BDIR/tempDir"
-		mkdir $tmpdir
-		for fits in "${fits_files[@]}"; do
-			local a
-			a=$(basename "$fits" .fits | sed 's/entirecamera_//')
-			local txt="$entiredir_smallGrid/entirecamera_${a}_cropRegion.txt"
-			mv "$fits" "$tmpdir/entirecamera_${counter}.fits"
-			[[ -f "$txt" ]] && mv "$txt" "$tmpdir/entirecamera_${counter}_cropRegion.txt"
-			((counter++))
-		done
-		rm -f "$entiredir_smallGrid"/entirecamera_*_cropRegion.txt
-		mv "$tmpdir"/entirecamera_* "$entiredir_smallGrid"/
-		rm -rf "$tmpdir"
-		echo "$num_entiredir" > "$totalFramesFile"
-
-    	fi
-}
-export -f runCheckFinalAstrometry
-
 runMaskAndSkyPhase() {
     # Runs on every task of one multi-task step. Must run in a separate srun
     # step after warp has fully finished for every frame, same reasoning as
