@@ -73,20 +73,23 @@ def obtainKeyWordFromFits(file, keyword):
         with fits.open(file) as hdul:
             header = hdul[HDU_TO_FIND_AIRMASS].header
             
+            print(f"Trying to obtain the keyword: {keyword} from {file}")
             if keyword in header:
                 keywordValue = header[keyword]
                 if (keywordValue == "" or keywordValue == None):
                     keywordValue=np.nan
                 return(keywordValue)
             else:
-                raise Exception(f"Keyword '{keyword}' not found in the header.")
+                print(f"Keyword '{keyword}' not found in the header.")
+                return(np.nan)
+                # raise Exception(f"Keyword '{keyword}' not found in the header.")
     else:
         raise Exception(f"File {file} does not exist.")
  
 def obtainAirmassFromFile(currentFile, airMassesFolder, airMassKeyWord):
     frameNumber = obtainNumberFromFrame(currentFile)
  
-    fitsFileNamePatter = f"{frameNumber}.fits"
+    fitsFileNamePatter = f"entirecamera_{frameNumber}.fits"
     fitsFilePath = os.path.join(airMassesFolder, fitsFileNamePatter)
  
     airMass = obtainKeyWordFromFits(fitsFilePath, airMassKeyWord)
@@ -96,8 +99,12 @@ def obtainNightForFrameNumber(frameNumber, folderWithFramesWithAirmasses):
     # NightNumber was propagated all the way through to pointings_smallGrid
     # (folderWithFramesWithAirmasses points there), so this frame's own file
     # should always carry it.
-    fitsFilePath = os.path.join(folderWithFramesWithAirmasses, f"{frameNumber}.fits")
-    return(int(obtainKeyWordFromFits(fitsFilePath, "NightNumber")))
+    fitsFilePath = os.path.join(folderWithFramesWithAirmasses, f"entirecamera_{frameNumber}.fits")
+    night =  obtainKeyWordFromFits(fitsFilePath, "NightNumber")
+
+    if (not np.isnan(night)):
+        return(int(night))
+    return(np.nan)
  
 def obtainNormalisedBackground(currentFile, folderWithAirMasses, airMassKeyWord):
     backgroundValue = -1
@@ -211,7 +218,7 @@ def saveScatterFactors(factors, rejectedAstrometryIndices, rejectedFWHMIndices, 
         if (not pd.isna(i[0])): 
             match=re.search(r"_(\d+).",i[0])
             frame = match.group(1)
-            file=folderWithFramesWithAirmasses+'/'+str(frame)+'.fits'
+            file=folderWithFramesWithAirmasses+'/entirecamera_'+str(frame)+'.fits'
             date=obtainKeyWordFromFits(file,'DATE-OBS')
             air=obtainKeyWordFromFits(file,'AIRMASS')
             date_ok=datetime.fromisoformat(date)
@@ -291,7 +298,7 @@ def saveBackEvolution(magnitudesPerArcSecSq, rejectedAstrometryIndices, rejected
         if (not pd.isna(i[0])): 
             match=re.search(r"_(\d+).",i[0])
             frame = match.group(1)
-            file=folderWithFramesWithAirmasses+'/'+str(frame)+'.fits'
+            file=folderWithFramesWithAirmasses+'/entirecamera_'+str(frame)+'.fits'
             date=obtainKeyWordFromFits(file,'DATE-OBS')
             air=obtainKeyWordFromFits(file,'AIRMASS')
             date_ok=datetime.fromisoformat(date)
@@ -614,12 +621,12 @@ elif (calibrationFactorScope == "perNight"):
         vals = vals[~np.isnan(vals)]
         if len(vals) == 0:
             continue
-        nightMean = np.mean(vals)
+        nightMedian = np.median(vals)
         nightStd = np.std(vals)
         for fname, ownFactor in entries:
             if pd.isna(ownFactor):
                 continue
-            if (ownFactor < nightMean - numberOfSigma*nightStd) or (ownFactor > nightMean + numberOfSigma*nightStd):
+            if (ownFactor < nightMedian - numberOfSigma*nightStd) or (ownFactor > nightMedian + numberOfSigma*nightStd):
                 # Extract the frame number here, anchored to its actual
                 # position (_<digits>. right before the extension) - NOT a
                 # bare \d+ search on the full filename later, which would

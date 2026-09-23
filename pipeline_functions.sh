@@ -3164,6 +3164,7 @@ computeCommonCalibrationFactorPerNight() {
   local outputFile=$BDIR/commonCalibrationFactors_it$iteration.txt
   > "$outputFile"
 
+
   # Group each frame's own calibration factor by the night it belongs to
   # (read from the NightNumber header keyword, centralised in
   # pointings_smallGrid since that folder is never deleted). frameNight is
@@ -3179,6 +3180,11 @@ computeCommonCalibrationFactorPerNight() {
     frameFits="$smallGridDir/entirecamera_${frameNumber}.fits"
     night=$( astfits "$frameFits" --keyvalue=NightNumber --quiet )
 
+    if [[ ! "$night" =~ ^[0-9]+$ ]]; then
+      echo "WARNING: NightNumber='$night' for $frameFits -- skipping"
+      continue
+    fi
+    
     frameNight[$frameNumber]=$night
     nightFactorsList[$night]+="$currentCalibrationFactor"$'\n'
   done
@@ -3194,15 +3200,12 @@ computeCommonCalibrationFactorPerNight() {
     rm "$tmpTableFits"
   done
 
-  # Write, into each frame's own header, the common (per-night) calibration
-  # factor that applies to it - so the header self-documents which value was
-  # actually used to calibrate that frame, alongside the text file.
-  for frameNumber in "${!frameNight[@]}"; do
-    night=${frameNight[$frameNumber]}
-    factor=${nightCommonFactor[$night]}
-    frameFits="$smallGridDir/entirecamera_${frameNumber}.fits"
-    astfits "$frameFits" -h1 --write=CalibrationFactor,$factor
-  done
+  # for frameNumber in "${!frameNight[@]}"; do
+  #   night=${frameNight[$frameNumber]}
+  #   factor=${nightCommonFactor[$night]}
+  #   frameFits="$smallGridDir/entirecamera_${frameNumber}.fits"
+  #   astfits "$frameFits" -h1 --write=CalibrationFactor,$factor
+  # done
 }
 export -f computeCommonCalibrationFactorPerNight
 
@@ -4580,10 +4583,10 @@ renameFiles(){
       index=$(( index+1 ))
     done
     echo done > "$framesForCommonReductionDir/rename_done.txt"
+    ls "$framesForCommonReductionDir"/*.fits | wc -l > "$totalFramesFile"
+    totalNumberOfFrames=$(cat "$totalFramesFile")
   fi
 
-  ls "$framesForCommonReductionDir"/*.fits | wc -l > "$totalFramesFile"
-  totalNumberOfFrames=$(cat "$totalFramesFile")
   export totalNumberOfFrames
   echo -e "* Total number of frames to combine: ${GREEN} $totalNumberOfFrames ${NOCOLOUR} *"
 }
@@ -5197,6 +5200,10 @@ runBackgroundDiagnosisPhase() {
     else
       badFilesBackgroundWarningsFile=identifiedBadFrames_backgroundBrightness_it$iteration.txt
       badFilesCalibrationFactorFile=identifiedBadFrames_calibrationFactor_it$iteration.txt
+      echo python3 $pythonScriptsPath/diagnosis_normalisedBackgroundMagnitudesAndCalibrationFactorPlots.py $tmpDir $entiredir_smallGrid $airMassKeyWord $alphatruedir \
+                                                                                                        $pixelScale $diagnosis_and_badFilesDir $maximumBackgroundBrightness $badFilesBackgroundWarningsFile \
+                                                                                                        $badFilesCalibrationFactorFile $calibrationFactorScope $commonCalibrationFactorFile $iteration
+
       python3 $pythonScriptsPath/diagnosis_normalisedBackgroundMagnitudesAndCalibrationFactorPlots.py $tmpDir $entiredir_smallGrid $airMassKeyWord $alphatruedir \
                                                                                                         $pixelScale $diagnosis_and_badFilesDir $maximumBackgroundBrightness $badFilesBackgroundWarningsFile \
                                                                                                         $badFilesCalibrationFactorFile $calibrationFactorScope $commonCalibrationFactorFile $iteration
