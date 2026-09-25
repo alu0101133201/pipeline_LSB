@@ -691,8 +691,8 @@ propagateKeyword() {
     local out=$3
 
     valueToPropagate=$(gethead $image $keyWordToPropagate)
-    eval "astfits --delete=$keyWordToPropagate $out -h1 2&>/dev/null" # I redirect the error descriptor so I avoid the error message if the keyword didn't exist
-    eval "astfits $out -h1 --write=$keyWordToPropagate,$valueToPropagate "
+    astfits --delete=$keyWordToPropagate $out -h1 2&>/dev/null
+    astfits $out -h1 --write=$keyWordToPropagate,$valueToPropagate
 }
 export -f propagateKeyword
 
@@ -1300,9 +1300,12 @@ warpImage() {
 	#    echo "The common way to run warpImage has failed for {$currentIndex}"
     #fi
     # I'm manually propagating the date because is used in some versions of the pipeline (amateur data) but  swarp for some reason propagates it incorrectly
+
     propagateKeyword $imageToSwarp $dateHeaderKey $entiredir/entirecamera_"$currentIndex".fits 
     propagateKeyword $imageToSwarp $airMassKeyWord $entiredir/entirecamera_"$currentIndex".fits
-    propagateKeyword $imageToSwarp NightNumber $entiredir/entirecamera_"$currentIndex".fits
+
+    nightNumber=$( astfits $imageToSwarp --keyvalue=NightNumber --quiet )
+    astfits $entiredir/entirecamera_"$currentIndex".fits -h1 --write=NightNumber,$nightNumber
 }
 export -f warpImage
 
@@ -1905,8 +1908,9 @@ solveField() {
 
         ((attempt++))
     done
-    propagateKeyword $i NightNumber $astroimadir/$base
 
+    nightNumber=$( astfits $i --keyvalue=NightNumber --quiet )
+    astfits $astroimadir/$base -h1 --write=NightNumber,$nightNumber 
 }
 export -f solveField
 
@@ -3598,7 +3602,7 @@ produceCalibrationCheckPlot() {
 
         # In the nominal resolution it takes sooo long for doing this plots. So only a set of frames are used for the
         # calibration check
-        if [ "$frameNumber" -gt 10 ]; then
+        if [ "$frameNumber" -gt 5 ]; then
             :
         else
             if [[ ($survey == "SPECTRA") || ("$mosaicPlot" == true) ]]; then

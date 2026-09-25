@@ -73,7 +73,6 @@ def obtainKeyWordFromFits(file, keyword):
         with fits.open(file) as hdul:
             header = hdul[HDU_TO_FIND_AIRMASS].header
             
-            print(f"Trying to obtain the keyword: {keyword} from {file}")
             if keyword in header:
                 keywordValue = header[keyword]
                 if (keywordValue == "" or keywordValue == None):
@@ -178,17 +177,13 @@ def saveHistogram(values, rejectedAstrometryIndices, rejectedFWHMIndices, reject
     counts, bins, patches = ax.hist(values, color="teal")
  
     if (len(rejectedBackgroundIndices) > 0):
-        ax.hist(values[rejectedBackgroundIndices - 1], color="red", label="Rejected by background brightness")
+        ax.hist(values[rejectedBackgroundIndices][-1], color="red", label="Rejected by background brightness")
     if (len(rejectedFWHMIndices)):
-        ax.hist(values[rejectedFWHMIndices - 1], color="mediumorchid", label="Rejected by fwhm")
-    # if (len(rejectedAstrometryIndices)):
-    #     ax.hist(values[rejectedAstrometryIndices - 1], color="blue", label="Rejected by astrometry")
+        ax.hist(values[rejectedFWHMIndices][-1], color="mediumorchid", label="Rejected by fwhm")
     if (len(rejectedCalibrationFactorIndices)):
-        ax.hist(values[rejectedCalibrationFactorIndices - 1], color="orange", label="Rejected by calibration factor")
+        ax.hist(values[rejectedCalibrationFactorIndices][-1], color="orange", label="Rejected by calibration factor")
  
     if (valuesForMultipleVerticalLines is not None):
-        # perNight mode: one vertical line per night's own common calibration
-        # factor, instead of a single mean +/- std band.
         for idx, (night, nightFactor) in enumerate(sorted(valuesForMultipleVerticalLines.items())):
             plt.axvline(x=nightFactor, color='blue', ls='--', lw=2.0,
                         label=f"Night {night}" if idx < 12 else None)  # cap legend entries so it doesn't overflow for many nights
