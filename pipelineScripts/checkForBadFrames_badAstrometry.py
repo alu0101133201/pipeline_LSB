@@ -62,14 +62,15 @@ def calculateFreedmanBins(data, initialValue = None):
     return(bins)
 
 def savePlot(col1Name, table, diagnosisFolder, threshold):
-    myBins = calculateFreedmanBins(df[col1_name])
+    # myBins = calculateFreedmanBins(df[col1_name])
 
     fig, ax = plt.subplots(1, 1, figsize=(10, 10))
     ax.set_title("Relevant parameter to check astrometrisation; Rejecting frames with < " + str(threshold), pad=17)
     configureAxis(ax, col1_name, '', logScale=False)
     ax.set_xlim(0, 65)
     n, _, _ = ax.hist(df[col1_name], bins=myBins, color="teal")
-    ax.hist([x for x in df[col1_name] if x < threshold], bins=myBins, color="darkred")
+    # ax.hist([x for x in df[col1_name] if x < threshold], bins=myBins, color="darkred")
+    ax.hist([x for x in df[col1_name] if x < threshold], color="darkred")
 
     ax.vlines(x=threshold, ymin=0, ymax=(2*n.max()), color="black", ls="--", lw=2.5)
     ax.set_ylim(0, n.max() + 0.5)
