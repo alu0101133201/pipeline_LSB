@@ -2464,7 +2464,7 @@ prepareSurveyDataForPhotometricCalibration() {
         if [[ -f $brickDecalsAssociationFile ]]; then
             rm $brickDecalsAssociationFile
         fi
-        python3 $pythonScriptsPath/associateDecalsBricksToFrames.py $referenceImagesForMosaic $imagesHdu $bricksIdentificationFile $brickDecalsAssociationFile $survey
+        python3 $pythonScriptsPath/associateDecalsBricksToFrames.py $referenceImagesForMosaic $imagesHdu $bricksIdentificationFile $brickDecalsAssociationFile $survey $aperturePhotDir
     done
 }
 export -f prepareSurveyDataForPhotometricCalibration

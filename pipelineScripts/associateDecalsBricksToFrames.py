@@ -5,7 +5,7 @@ import numpy as np
 
 from astropy.io import fits
 from astropy.wcs import WCS
-
+from astropy.table import Table
 def readFits(fitsFile, hdu):
     with fits.open(fitsFile) as hdul:
         header = hdul[hdu].header
@@ -25,7 +25,7 @@ def BrickInRange(raRange, decRange, currentRa, currentDec):
         return(True)
     return False
 
-def checkBricksInRange(raRange, decRange, brickIdentificationFile):
+def checkBricksInRange(raRange, decRange, brickIdentificationFile,aperCatDir):
     bricksInRange = []
 
     with open(brickIdentificationFile, 'r') as f:
@@ -37,12 +37,17 @@ def checkBricksInRange(raRange, decRange, brickIdentificationFile):
             currentDec   = float(splittedLine[2])
 
             if ( BrickInRange(raRange, decRange, currentRa, currentDec) ):
-                bricksInRange.append(currentBrick)
+                aperCat=f"{aperCatDir}/{currentBrick}.cat"
+                #Aperture cat must have 8 columns. If not, we discard it
+                tab=Table.read(aperCat,format='ascii')
+                ncols=len(tab.columns)
+                if ncols==8:
+                    bricksInRange.append(currentBrick)
                 
     return(np.array(bricksInRange))
 
             
-def getAssociatedBricksToFrame(frame, brickIdentificationFile, framesDataHdu):
+def getAssociatedBricksToFrame(frame, brickIdentificationFile, framesDataHdu,aperCatDir):
     frameData, _, frameWcs = readFits(frame, framesDataHdu)
     ny, nx = frameData.shape
 
@@ -55,7 +60,7 @@ def getAssociatedBricksToFrame(frame, brickIdentificationFile, framesDataHdu):
     frameRARange  = (np.min(ra), np.max(ra))
     frameDecRange = (np.min(dec), np.max(dec))
 
-    bricksAssociated = checkBricksInRange(frameRARange, frameDecRange, brickIdentificationFile)
+    bricksAssociated = checkBricksInRange(frameRARange, frameDecRange, brickIdentificationFile,aperCatDir)
     return(bricksAssociated)
 
 def writeBricksToFile(frame, bricks, outputFile):
@@ -72,6 +77,7 @@ framesDataHdu           = int(sys.argv[2])
 brickIdentificationFile = sys.argv[3]
 outputFile              = sys.argv[4]
 survey                  = sys.argv[5]
+catDir                  = sys.argv[6]
 if survey=="DECaLS":
     DECALS_BRICK_WIDTH_DEG = 15.5 / 60
 elif survey in ["PANSTARRS", "SDSS"]:
@@ -79,5 +85,5 @@ elif survey in ["PANSTARRS", "SDSS"]:
     DECALS_BRICK_WIDTH_DEG = 0.25
 
 for currentFrame in glob.glob(framesDir + "/*.fits"):
-    associatedBricks = getAssociatedBricksToFrame(currentFrame, brickIdentificationFile, framesDataHdu)
+    associatedBricks = getAssociatedBricksToFrame(currentFrame, brickIdentificationFile, framesDataHdu,catDir)
     writeBricksToFile(currentFrame, associatedBricks, outputFile)
