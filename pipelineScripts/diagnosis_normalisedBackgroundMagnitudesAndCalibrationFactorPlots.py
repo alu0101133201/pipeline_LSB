@@ -177,11 +177,11 @@ def saveHistogram(values, rejectedAstrometryIndices, rejectedFWHMIndices, reject
     counts, bins, patches = ax.hist(values, color="teal")
  
     if (len(rejectedBackgroundIndices) > 0):
-        ax.hist(values[rejectedBackgroundIndices][-1], color="red", label="Rejected by background brightness")
+        ax.hist(values[rejectedBackgroundIndices - 1], color="red", label="Rejected by background brightness")
     if (len(rejectedFWHMIndices)):
-        ax.hist(values[rejectedFWHMIndices][-1], color="mediumorchid", label="Rejected by fwhm")
+        ax.hist(values[rejectedFWHMIndices - 1], color="mediumorchid", label="Rejected by fwhm")
     if (len(rejectedCalibrationFactorIndices)):
-        ax.hist(values[rejectedCalibrationFactorIndices][-1], color="orange", label="Rejected by calibration factor")
+        ax.hist(values[rejectedCalibrationFactorIndices - 1], color="orange", label="Rejected by calibration factor")
  
     if (valuesForMultipleVerticalLines is not None):
         for idx, (night, nightFactor) in enumerate(sorted(valuesForMultipleVerticalLines.items())):
