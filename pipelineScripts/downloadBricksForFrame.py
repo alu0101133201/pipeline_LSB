@@ -119,14 +119,16 @@ def plotEllipseAndBricks(x0, y0, sma, axis_ratio, pa, x, y, pointsmask_bricksIns
     plt.axis("equal")
     plt.savefig(mosaicDir + "/downloadedBricks.png")
 
-def writeBricksAndItsCoordinates(file, brickNames, ra, dec, survey):
+def writeBricksAndItsCoordinates(file, brickNames, ra, dec, survey,filter):
     with open(file, 'w') as f:
         f.write("BrickName\tRA_centre\tDec_centre\n")
         for i in range(len(brickNames)):
             if survey=='PANSTARRS':
                 #Just to avoid the .fits in the brick identification file, will be useful in the future
                 brickName=brickNames[i][:-5]
-            elif (survey=='DECaLS' or survey=='SDSS'):
+            elif (survey=='DECaLS'):
+                brickName=f'{brickNames[i]}.{filter}'
+            elif (survey=='SDSS'):
                 brickName=brickNames[i]
             f.write(brickName + "\t" + "{:.6f}".format(ra[i]) + "\t" +  "{:.6f}".format(dec[i]) + "\n")
 
@@ -204,7 +206,7 @@ bricksToDownload = bricksNames[~maskCombined]
 plotEllipseAndBricks(galaxyRA, galaxyDec, galaxySMA, galaxyAxisRatio, galaxyPA, bricksRA, bricksDec, mask_bricksInsideGalaxy, mask_bricksWithBrightStar, maskCombined, mosaicDir)
 """
 
-writeBricksAndItsCoordinates(bricksIdentificationFile, bricksNames, bricksRA, bricksDec, survey)
+writeBricksAndItsCoordinates(bricksIdentificationFile, bricksNames, bricksRA, bricksDec, survey, filters[0])
 
 """
 For Panstarrs, sometimes the ping does not download the full frame, but the .fits file is created.
