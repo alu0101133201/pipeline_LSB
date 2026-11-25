@@ -1698,11 +1698,16 @@ gainCorrection() {
 export -f gainCorrection
 
 downloadGaiaCatalogue() {
-    local query=$1
-    local catdir=$2
-    local catName=$3
-
-    astquery $query -o $catdir/"$objectName"_Gaia_eDR3_tmp.fits
+    local catdir=$1
+    local ra=$2
+    local dec=$3
+    local radius=$4
+    local catName=$5
+    
+    csvDir=$catdir/csvFiles
+    if ! [ -d $csvDir ]; then mkdir $csvDir; fi
+    python3 $pythonScriptsPath/getGaiaCatFromBulk.py $csvDir $ra $dec $radius $catdir/"$objectName"_Gaia_eDR3_tmp.fits
+    #astquery $query -o $catdir/"$objectName"_Gaia_eDR3_tmp.fits
     asttable $catdir/"$objectName"_Gaia_eDR3_tmp.fits -c1,2,3 -c'arith $4 abs' -c'arith $5 3 x' -c'arith $6 abs' -c'arith $7 3 x' -c'arith $8 abs' -c'arith $9 3 x' --noblank=4 -o$catdir/tmp.txt
 
     # I have explored 3 different ways of selecting good stars. 
@@ -1724,7 +1729,7 @@ downloadGaiaCatalogue() {
     asttable $catdir/tmp.txt -c1,2,3 -c'arith $4 $4 $5 gt 1000 where' -c'arith $6 $6 $7 gt 1000 where' -c'arith $8 $8 $9 gt 1000 where' -o$catdir/test_.txt
     asttable $catdir/test_.txt -c1,2,3 -c'arith $4 $5 + $6 +' -o$catdir/test1.txt
     asttable $catdir/test1.txt -c1,2,3 --range=ARITH_2,999,3001 -o $catName
-
+    rm -r $csvDir
     rm $catdir/test1.txt $catdir/tmp.txt $catdir/"$objectName"_Gaia_eDR3_tmp.fits $catdir/test_.txt
 }
 export -f downloadGaiaCatalogue

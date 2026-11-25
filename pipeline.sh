@@ -994,6 +994,7 @@ for currentNight in $(seq 1 $numberOfNights); do
 done
 
 printf "%s\n" "${nights[@]}" | parallel --line-buffer -j "$numberOfNights" oneNightPreProcessing {}
+exit
 totalNumberOfFrames=$( ls $framesForCommonReductionDir/*.fits | wc -l)
 export totalNumberOfFrames
 echo -e "* Total number of frames to combine: ${GREEN} $totalNumberOfFrames ${NOCOLOUR} *"
@@ -1034,7 +1035,8 @@ if ! [ -d $catdir ]; then mkdir $catdir; fi
 if [ -f $catdone ]; then
   echo -e "\n\tCatalogue is already downloaded\n"
 else
-  downloadGaiaCatalogue "$query_param_gaia" $catdir $catName_gaia
+  #downloadGaiaCatalogue "$query_param_gaia" $catdir $catName_gaia
+  downloadGaiaCatalogue $catdir $ra_gal $dec_gal $radiusToDownloadCatalogue_gaia $catName_gaia
   downloadPanstarrsCatalogue "$query_param_ps" $catdir $catName_ps
   python3 $pythonScriptsPath/createDS9RegionsFromCatalogue.py $catName_gaia $catRegionName "fits"
   echo "done" > $catdone
