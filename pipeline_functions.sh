@@ -2117,7 +2117,8 @@ performAperturePhotometryToSingleBrick() {
     local numberOfApertureForRecuperateGAIA=$6
     local survey=$7
     if [[ "$survey" = "DECaLS" ]]; then
-        brickName=decompressed_decal_image_"$brick"_"$filter".fits
+        brick="${brick%.fits}"  # Remove the .fits extension if present
+        brickName=decompressed_decal_image_"$brick".fits
     elif [[ "$survey" = "PANSTARRS" ]]; then
         brickName=cal_"$brick".fits
     elif [[ "$survey" = "SDSS" ]]; then
