@@ -994,7 +994,7 @@ for currentNight in $(seq 1 $numberOfNights); do
 done
 
 printf "%s\n" "${nights[@]}" | parallel --line-buffer -j "$numberOfNights" oneNightPreProcessing {}
-exit
+
 totalNumberOfFrames=$( ls $framesForCommonReductionDir/*.fits | wc -l)
 export totalNumberOfFrames
 echo -e "* Total number of frames to combine: ${GREEN} $totalNumberOfFrames ${NOCOLOUR} *"
