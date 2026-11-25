@@ -1529,8 +1529,8 @@ downloadCatalogue() {
 
     case "$surveyToUse" in
         gaia)
-            query_param="gaia --dataset=dr3 --center=$ra,$dec --radius=$radius --column=ra,dec,phot_g_mean_mag,parallax,parallax_error,pmra,pmra_error,pmdec,pmdec_error"
-            downloadGaiaCatalogue "$query_param" "$catDir" "$catName"
+            #query_param="gaia --dataset=dr3 --center=$ra,$dec --radius=$radius --column=ra,dec,phot_g_mean_mag,parallax,parallax_error,pmra,pmra_error,pmdec,pmdec_error"
+            downloadGaiaCatalogue $catDir $ra $dec $radius $catName
             ;;
         panstarrs)
             query_param="vizier --dataset=panstarrs1 --center=$ra,$dec --radius=$radius --column=RAJ2000,DEJ2000,gmag"
@@ -1547,11 +1547,15 @@ export -f downloadCatalogue
 
 
 downloadGaiaCatalogue() {
-    local query=$1
-    local catdir=$2
-    local catName=$3
+    local catdir=$1
+    local ra=$2
+    local dec=$3
+    local radius=$4
+    local catName=$5
 
-    astquery $query -o $catdir/"$objectName"_Gaia_DR3_tmp.fits
+    csvDir=$catdir/csvFiles
+    if ! [ -d $csvDir ]; then mkdir $csvDir; fi
+    python3 $pythonScriptsPath/getGaiaCatFromBulk.py $csvDir $ra $dec $radius $catdir/"$objectName"_Gaia_DR3_tmp.fits
     asttable $catdir/"$objectName"_Gaia_DR3_tmp.fits -c1,2,3 -c'arith $4 abs' -c'arith $5 3 x' -c'arith $6 abs' -c'arith $7 3 x' -c'arith $8 abs' -c'arith $9 3 x' --noblank=4 -o$catdir/tmp.txt
 
     # I have explored 3 different ways of selecting good stars.
@@ -1943,6 +1947,7 @@ performAperturePhotometryToSingleBrick() {
 
 
     if [[ "$survey" = "DECaLS" ]]; then
+        brick="${brick%.fits}" # Remove the .fits extension if present
         brickName=decompressed_decal_image_"$brick".fits
     elif [[ "$survey" = "PANSTARRS" ]]; then
         brickName=cal_"$brick".fits
