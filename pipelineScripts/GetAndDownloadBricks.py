@@ -195,6 +195,8 @@ def downloadBrickDecals(brickName, filters, destinationFolder, overWrite=True):
         if (overWrite or (not os.path.exists(f"{destinationFolder}/decal_image_{brickName}_{i}.fits"))):
 	    #Decals dr10 south is not complete, we check dr10 north, dr9 south and dr9 north
             base_urls = [
+                "https://portal.nersc.gov/cfs/cosmo/data/legacysurvey/dr11/south/coadd",
+                "https://portal.nersc.gov/cfs/cosmo/data/legacysurvey/dr11/north/coadd",
                 "https://portal.nersc.gov/cfs/cosmo/data/legacysurvey/dr10/south/coadd",
                 "https://portal.nersc.gov/cfs/cosmo/data/legacysurvey/dr10/north/coadd",
                 "https://portal.nersc.gov/cfs/cosmo/data/legacysurvey/dr9/south/coadd",
