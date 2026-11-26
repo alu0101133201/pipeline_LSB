@@ -76,7 +76,7 @@ def generateCatalog(csvDir,ra,dec,sizeOfField):
     decMin = dec - sizeOfField / 2
     decMax = dec + sizeOfField / 2
     #catalog=Table(names=['ra','dec','ra_error','dec_error','phot_g_mean_mag','phot_g_mean_flux','phot_g_mean_flux_error','parallax','parallax_error','pmra','pmra_error','pmdec','pmdec_error'],dtype=['f8']*13)
-    columns_to_keep = ['ra','dec','ra_error','dec_error','phot_g_mean_mag','phot_g_mean_flux','phot_g_mean_flux_error','parallax','parallax_error','pmra','pmra_error','pmdec','pmdec_error']
+    columns_to_keep = ['ra','dec','phot_g_mean_mag','parallax','parallax_error','pmra','pmra_error','pmdec','pmdec_error']
     tables = []
     for file in glob.glob(f"{csvDir}/*.csv"):
         df = pd.read_csv(file, sep=',',skiprows=1000)
